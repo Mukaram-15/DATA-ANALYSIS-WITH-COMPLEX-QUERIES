@@ -1,0 +1,75 @@
+WITH MonthlySales AS (
+    SELECT 
+        EXTRACT(YEAR FROM order_date) AS year,
+        EXTRACT(MONTH FROM order_date) AS month,
+        SUM(order_amount) AS total_sales
+    FROM orders
+    GROUP BY year, month
+    ORDER BY year, month
+)
+SELECT 
+    year,
+    month,
+    total_sales,
+    LAG(total_sales, 1) OVER (ORDER BY year, month) AS prev_month_sales,
+    (total_sales - LAG(total_sales, 1) OVER (ORDER BY year, month)) AS sales_diff,
+    ROUND((total_sales - LAG(total_sales, 1) OVER (ORDER BY year, month)) / NULLIF(LAG(total_sales, 1) OVER (ORDER BY year, month), 0) * 100, 2) AS sales_growth_percentage
+FROM MonthlySales;
+SELECT 
+    p.category,
+    SUM(o.order_amount) AS total_sales
+FROM orders o
+JOIN products p ON o.product_id = p.product_id
+GROUP BY p.category
+ORDER BY total_sales DESC;
+WITH CustomerOrders AS (
+    SELECT 
+        customer_id, 
+        COUNT(order_id) AS total_orders
+    FROM orders
+    GROUP BY customer_id
+)
+SELECT 
+    total_orders, 
+    COUNT(customer_id) AS num_customers
+FROM CustomerOrders
+GROUP BY total_orders
+ORDER BY total_orders DESC;
+SELECT 
+    c.location,
+    SUM(o.order_amount) AS total_sales
+FROM orders o
+JOIN customers c ON o.customer_id = c.customer_id
+GROUP BY c.location
+ORDER BY total_sales DESC;
+WITH ActiveCustomers AS (
+    SELECT 
+        EXTRACT(YEAR FROM order_date) AS year,
+        EXTRACT(MONTH FROM order_date) AS month,
+        customer_id
+    FROM orders
+    GROUP BY year, month, customer_id
+)
+SELECT 
+    year,
+    month,
+    COUNT(DISTINCT customer_id) AS active_customers
+FROM ActiveCustomers
+GROUP BY year, month
+ORDER BY year, month;
+WITH YearlySales AS (
+    SELECT 
+        EXTRACT(YEAR FROM order_date) AS year,
+        SUM(order_amount) AS total_sales
+    FROM orders
+    GROUP BY year
+)
+SELECT 
+    current.year,
+    current.total_sales AS current_year_sales,
+    prev.total_sales AS previous_year_sales,
+    (current.total_sales - prev.total_sales) / prev.total_sales * 100 AS yoy_growth
+FROM YearlySales current
+LEFT JOIN YearlySales prev
+    ON current.year = prev.year + 1
+ORDER BY current.year;
