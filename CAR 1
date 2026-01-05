@@ -1,0 +1,28 @@
+WITH SalesByYear AS (
+    SELECT 
+        salesperson_id,
+        EXTRACT(YEAR FROM sale_date) AS year,
+        SUM(amount) AS total_sales
+    FROM sales
+    GROUP BY salesperson_id, year
+),
+AvgSales AS (
+    SELECT AVG(amount) AS avg_sales
+    FROM sales
+)
+SELECT 
+    current.salesperson_id,
+    current.year,
+    current.total_sales AS current_year_sales,
+    (SELECT avg_sales FROM AvgSales) AS avg_sales,
+    CASE 
+        WHEN current.total_sales > (SELECT avg_sales FROM AvgSales) THEN 'Above Average'
+        WHEN current.total_sales < (SELECT avg_sales FROM AvgSales) THEN 'Below Average'
+        ELSE 'Average'
+    END AS performance,
+    (current.total_sales - prev.total_sales) / prev.total_sales * 100 AS yoy_growth
+FROM SalesByYear current
+LEFT JOIN SalesByYear prev
+    ON current.salesperson_id = prev.salesperson_id 
+    AND current.year = prev.year + 1
+WHERE prev.total_sales IS NOT NULL;
