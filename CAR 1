@@ -1,28 +1,37 @@
-WITH SalesByYear AS (
+-- Step 1: Tell MySQL which database to use
+USE my_business_db;
+
+-- Step 2: Clear old data to avoid "Duplicate entry" errors
+TRUNCATE TABLE Sales;
+
+-- Step 3: Re-insert the data
+INSERT INTO Sales (SaleID, EmployeeID, SaleDate, Amount, Region) VALUES
+(1, 101, '2024-01-01', 500, 'North'),
+(2, 101, '2024-01-05', 700, 'North'),
+(3, 102, '2024-01-02', 300, 'South'),
+(4, 102, '2024-01-07', 900, 'South'),
+(5, 103, '2024-01-03', 450, 'East'),
+(6, 101, '2024-01-10', 200, 'North');
+
+-- Step 4: Run the Advanced Analysis
+WITH EmployeeStats AS (
     SELECT 
-        salesperson_id,
-        EXTRACT(YEAR FROM sale_date) AS year,
-        SUM(amount) AS total_sales
-    FROM sales
-    GROUP BY salesperson_id, year
-),
-AvgSales AS (
-    SELECT AVG(amount) AS avg_sales
-    FROM sales
+        EmployeeID, 
+        AVG(Amount) AS AvgSale
+    FROM Sales
+    GROUP BY EmployeeID
 )
 SELECT 
-    current.salesperson_id,
-    current.year,
-    current.total_sales AS current_year_sales,
-    (SELECT avg_sales FROM AvgSales) AS avg_sales,
+    s.EmployeeID,
+    s.Region,
+    s.SaleDate,
+    s.Amount,
+    LAG(s.Amount) OVER (PARTITION BY s.EmployeeID ORDER BY s.SaleDate) AS PreviousSale,
+    RANK() OVER (PARTITION BY s.Region ORDER BY s.Amount DESC) AS RegionalRank,
     CASE 
-        WHEN current.total_sales > (SELECT avg_sales FROM AvgSales) THEN 'Above Average'
-        WHEN current.total_sales < (SELECT avg_sales FROM AvgSales) THEN 'Below Average'
-        ELSE 'Average'
-    END AS performance,
-    (current.total_sales - prev.total_sales) / prev.total_sales * 100 AS yoy_growth
-FROM SalesByYear current
-LEFT JOIN SalesByYear prev
-    ON current.salesperson_id = prev.salesperson_id 
-    AND current.year = prev.year + 1
-WHERE prev.total_sales IS NOT NULL;
+        WHEN s.Amount > e.AvgSale THEN 'Above Average'
+        ELSE 'Below Average'
+    END AS Performance
+FROM Sales s
+JOIN EmployeeStats e ON s.EmployeeID = e.EmployeeID
+ORDER BY s.EmployeeID, s.SaleDate;
