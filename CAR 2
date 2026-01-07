@@ -1,75 +1,155 @@
-WITH MonthlySales AS (
-    SELECT 
-        EXTRACT(YEAR FROM order_date) AS year,
-        EXTRACT(MONTH FROM order_date) AS month,
-        SUM(order_amount) AS total_sales
-    FROM orders
-    GROUP BY year, month
-    ORDER BY year, month
-)
-SELECT 
-    year,
-    month,
-    total_sales,
-    LAG(total_sales, 1) OVER (ORDER BY year, month) AS prev_month_sales,
-    (total_sales - LAG(total_sales, 1) OVER (ORDER BY year, month)) AS sales_diff,
-    ROUND((total_sales - LAG(total_sales, 1) OVER (ORDER BY year, month)) / NULLIF(LAG(total_sales, 1) OVER (ORDER BY year, month), 0) * 100, 2) AS sales_growth_percentage
-FROM MonthlySales;
-SELECT 
+/* =========================================================
+   COMPLETE DATA ANALYSIS WITH COMPLEX SQL QUERIES
+   (SELF-CONTAINED & ERROR-FREE)
+========================================================= */
+
+/* ---------- 1. CREATE & USE DATABASE ---------- */
+CREATE DATABASE IF NOT EXISTS sales_db;
+USE sales_db;
+
+
+/* ---------- 2. CREATE TABLES ---------- */
+CREATE TABLE customers (
+    customer_id INT PRIMARY KEY,
+    customer_name VARCHAR(50),
+    country VARCHAR(50)
+);
+
+CREATE TABLE products (
+    product_id INT PRIMARY KEY,
+    product_name VARCHAR(50),
+    category VARCHAR(50)
+);
+
+CREATE TABLE orders (
+    order_id INT PRIMARY KEY,
+    customer_id INT,
+    order_date DATE,
+    total_amount DECIMAL(10,2),
+    FOREIGN KEY (customer_id) REFERENCES customers(customer_id)
+);
+
+CREATE TABLE order_details (
+    order_detail_id INT PRIMARY KEY,
+    order_id INT,
+    product_id INT,
+    quantity INT,
+    price DECIMAL(10,2),
+    FOREIGN KEY (order_id) REFERENCES orders(order_id),
+    FOREIGN KEY (product_id) REFERENCES products(product_id)
+);
+
+
+/* ---------- 3. INSERT SAMPLE DATA ---------- */
+INSERT INTO customers VALUES
+(1, 'Alice', 'India'),
+(2, 'Bob', 'USA'),
+(3, 'Charlie', 'UK');
+
+INSERT INTO products VALUES
+(101, 'Laptop', 'Electronics'),
+(102, 'Phone', 'Electronics'),
+(103, 'Chair', 'Furniture');
+
+INSERT INTO orders VALUES
+(1001, 1, '2024-01-10', 50000),
+(1002, 2, '2024-02-15', 30000),
+(1003, 1, '2024-03-20', 20000),
+(1004, 3, '2024-04-05', 15000);
+
+INSERT INTO order_details VALUES
+(1, 1001, 101, 1, 50000),
+(2, 1002, 102, 1, 30000),
+(3, 1003, 103, 2, 10000),
+(4, 1004, 103, 1, 15000);
+
+
+/* =========================================================
+   DATA ANALYSIS QUERIES
+========================================================= */
+
+/* 1. MONTHLY SALES TREND */
+SELECT
+    DATE_FORMAT(order_date, '%Y-%m') AS month,
+    SUM(total_amount) AS monthly_sales
+FROM orders
+GROUP BY month
+ORDER BY month;
+
+
+/* 2. TOP CUSTOMERS BY LIFETIME VALUE */
+SELECT
+    c.customer_name,
+    SUM(o.total_amount) AS lifetime_value
+FROM customers c
+JOIN orders o ON c.customer_id = o.customer_id
+GROUP BY c.customer_name
+ORDER BY lifetime_value DESC;
+
+
+/* 3. AVERAGE ORDER VALUE BY COUNTRY */
+SELECT
+    c.country,
+    ROUND(AVG(o.total_amount), 2) AS avg_order_value
+FROM customers c
+JOIN orders o ON c.customer_id = o.customer_id
+GROUP BY c.country;
+
+
+/* 4. BEST-SELLING PRODUCT CATEGORIES */
+SELECT
     p.category,
-    SUM(o.order_amount) AS total_sales
-FROM orders o
-JOIN products p ON o.product_id = p.product_id
+    SUM(od.quantity * od.price) AS revenue
+FROM order_details od
+JOIN products p ON od.product_id = p.product_id
 GROUP BY p.category
-ORDER BY total_sales DESC;
-WITH CustomerOrders AS (
-    SELECT 
-        customer_id, 
-        COUNT(order_id) AS total_orders
-    FROM orders
-    GROUP BY customer_id
-)
-SELECT 
-    total_orders, 
-    COUNT(customer_id) AS num_customers
-FROM CustomerOrders
-GROUP BY total_orders
-ORDER BY total_orders DESC;
-SELECT 
-    c.location,
-    SUM(o.order_amount) AS total_sales
-FROM orders o
-JOIN customers c ON o.customer_id = c.customer_id
-GROUP BY c.location
-ORDER BY total_sales DESC;
-WITH ActiveCustomers AS (
-    SELECT 
-        EXTRACT(YEAR FROM order_date) AS year,
-        EXTRACT(MONTH FROM order_date) AS month,
-        customer_id
-    FROM orders
-    GROUP BY year, month, customer_id
-)
-SELECT 
-    year,
+ORDER BY revenue DESC;
+
+
+/* 5. REPEAT CUSTOMERS */
+SELECT
+    customer_id,
+    COUNT(order_id) AS total_orders
+FROM orders
+GROUP BY customer_id
+HAVING COUNT(order_id) > 1;
+
+
+/* 6. MONTH-OVER-MONTH SALES GROWTH */
+SELECT
     month,
-    COUNT(DISTINCT customer_id) AS active_customers
-FROM ActiveCustomers
-GROUP BY year, month
-ORDER BY year, month;
-WITH YearlySales AS (
-    SELECT 
-        EXTRACT(YEAR FROM order_date) AS year,
-        SUM(order_amount) AS total_sales
+    monthly_sales,
+    monthly_sales - LAG(monthly_sales) OVER (ORDER BY month) AS growth
+FROM (
+    SELECT
+        DATE_FORMAT(order_date, '%Y-%m') AS month,
+        SUM(total_amount) AS monthly_sales
     FROM orders
-    GROUP BY year
-)
-SELECT 
-    current.year,
-    current.total_sales AS current_year_sales,
-    prev.total_sales AS previous_year_sales,
-    (current.total_sales - prev.total_sales) / prev.total_sales * 100 AS yoy_growth
-FROM YearlySales current
-LEFT JOIN YearlySales prev
-    ON current.year = prev.year + 1
-ORDER BY current.year;
+    GROUP BY month
+) t;
+
+
+/* 7. INACTIVE CUSTOMERS (CHURN RISK) */
+SELECT
+    customer_id,
+    MAX(order_date) AS last_order_date
+FROM orders
+GROUP BY customer_id
+HAVING MAX(order_date) < DATE_SUB(CURDATE(), INTERVAL 6 MONTH);
+
+
+/* 8. PRODUCT CONTRIBUTION TO TOTAL REVENUE (%) */
+SELECT
+    p.product_name,
+    ROUND(
+        SUM(od.quantity * od.price) /
+        (SELECT SUM(quantity * price) FROM order_details) * 100,
+        2
+    ) AS revenue_percentage
+FROM order_details od
+JOIN products p ON od.product_id = p.product_id
+GROUP BY p.product_name
+ORDER BY revenue_percentage DESC;
+
+
+/* ================== END OF REPORT ================== */
